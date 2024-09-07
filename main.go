@@ -6,15 +6,11 @@ import (
 	"os"
 
 	_ "github.com/joho/godotenv/autoload"
-	"github.com/pbnjk/hh/bot"
+	"github.com/pbnjk/cardshark/bot"
 )
 
 func main() {
-	err := bot.New(os.Getenv("DISCORD_BOT_TOKEN"))
-	if err != nil {
-		bot.Quit()
+	if err := bot.Start(os.Getenv("DISCORD_BOT_TOKEN")); err != nil {
 		log.Panicf("Could not initialize bot: %v", err)
 	}
-
-	bot.Run()
 }

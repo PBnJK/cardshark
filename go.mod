@@ -1,4 +1,4 @@
-module github.com/pbnjk/hh
+module github.com/pbnjk/cardshark
 
 go 1.23.0
 

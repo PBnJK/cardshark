@@ -1,4 +1,4 @@
-package helper
+package bot
 
 import (
 	dgo "github.com/bwmarrin/discordgo"
@@ -35,12 +35,6 @@ type SelectMenu struct {
 	Flags dgo.MessageFlags
 }
 
-var optionMap map[string]*Option
-
-func init() {
-	optionMap = make(map[string]*Option)
-}
-
 func NewSelectMenu(prompt, id, placeholder string) *SelectMenu {
 	return &SelectMenu{
 		prompt:  prompt,
@@ -59,7 +53,13 @@ func (sm *SelectMenu) AddOption(name, id string, callback OptionCallback, follow
 		style:    dgo.SecondaryButton,
 	}
 
-	optionMap[option.id] = option
+	ComponentsHandlers[option.id] = func(s *dgo.Session, i *dgo.InteractionCreate) {
+		s.InteractionRespond(i.Interaction, option.callback(s, i))
+
+		if option.followup != nil {
+			option.followup(s, i)
+		}
+	}
 
 	sm.options = append(sm.options, option)
 }
@@ -73,25 +73,19 @@ func (sm *SelectMenu) OptionsAsMessageComponent() []dgo.MessageComponent {
 	return options
 }
 
-func (sm *SelectMenu) AsInteractionResponse() *dgo.InteractionResponse {
-	return &dgo.InteractionResponse{
-		Type: dgo.InteractionResponseChannelMessageWithSource,
-		Data: &dgo.InteractionResponseData{
-			Content: sm.prompt,
-			Flags:   sm.Flags,
-			Components: []dgo.MessageComponent{
-				dgo.ActionsRow{
-					Components: sm.OptionsAsMessageComponent(),
+func (sm *SelectMenu) RegisterInteractionResponse() {
+	CommandHandlers[sm.id] = func(s *dgo.Session, i *dgo.InteractionCreate) {
+		s.InteractionRespond(i.Interaction, &dgo.InteractionResponse{
+			Type: dgo.InteractionResponseChannelMessageWithSource,
+			Data: &dgo.InteractionResponseData{
+				Content: sm.prompt,
+				Flags:   sm.Flags,
+				Components: []dgo.MessageComponent{
+					dgo.ActionsRow{
+						Components: sm.OptionsAsMessageComponent(),
+					},
 				},
 			},
-		},
+		})
 	}
-}
-
-func HandleSelect(m dgo.MessageComponentInteractionData) (OptionCallback, OptionFollowup, bool) {
-	if opt, ok := optionMap[m.CustomID]; ok {
-		return opt.callback, opt.followup, true
-	}
-
-	return nil, nil, false
 }
