@@ -15,18 +15,48 @@ import (
 var (
 	session        *dgo.Session
 	registeredCmds []*dgo.ApplicationCommand
+
+	chooseGameMenu *dgo.InteractionResponse
 )
 
-func constructSelectMenu() *dgo.InteractionResponse {
-	sm := helper.NewSelectMenu("Test n1!", "basic", "Type stuff...?")
+func constructChooseGameMenu() *dgo.InteractionResponse {
+	sm := helper.NewSelectMenu("Selecione o jogo que quer jogar", "basic", "Type stuff...?")
 
-	sm.AddOption("Option 1", "o1")
-	sm.AddOption("Option 2", "o2")
-	sm.AddOption("Option 3", "o3")
+	sm.AddOption("21", "o1", func(s *dgo.Session, i *dgo.InteractionCreate) *dgo.InteractionResponse {
+		return &dgo.InteractionResponse{
+			Type: dgo.InteractionResponseChannelMessageWithSource,
+			Data: &dgo.InteractionResponseData{
+				Content: "You chose the first one",
+				Flags:   dgo.MessageFlagsEphemeral,
+			},
+		}
+	}, nil)
 
-	r := sm.AsInteractionResponse()
+	sm.AddOption("Option 2", "o2", func(s *dgo.Session, i *dgo.InteractionCreate) *dgo.InteractionResponse {
+		return &dgo.InteractionResponse{
+			Type: dgo.InteractionResponseChannelMessageWithSource,
+			Data: &dgo.InteractionResponseData{
+				Content: "You chose the second one",
+				Flags:   dgo.MessageFlagsEphemeral,
+			},
+		}
+	}, nil)
 
-	return r
+	sm.AddOption("Option 3", "o3", func(s *dgo.Session, i *dgo.InteractionCreate) *dgo.InteractionResponse {
+		return &dgo.InteractionResponse{
+			Type: dgo.InteractionResponseChannelMessageWithSource,
+			Data: &dgo.InteractionResponseData{
+				Content: "You chose the third one",
+				Flags:   dgo.MessageFlagsEphemeral,
+			},
+		}
+	}, nil)
+
+	return sm.AsInteractionResponse()
+}
+
+func init() {
+	chooseGameMenu = constructChooseGameMenu()
 }
 
 // Slash commands that this bot is able to respond to
@@ -38,8 +68,7 @@ var commands = []*dgo.ApplicationCommand{
 }
 
 func handleBasicCmd(_ *dgo.Session, i *dgo.InteractionCreate) {
-	fmt.Println("Handling basic command...")
-	err := session.InteractionRespond(i.Interaction, constructSelectMenu())
+	err := session.InteractionRespond(i.Interaction, chooseGameMenu)
 	if err != nil {
 		log.Panicf("Panicked with %v!!\n", err)
 	}
@@ -47,51 +76,21 @@ func handleBasicCmd(_ *dgo.Session, i *dgo.InteractionCreate) {
 	fmt.Println("Done!")
 }
 
-func handleResponseCmd(_ *dgo.Session, i *dgo.InteractionCreate) {
-	fmt.Println("Handling basic response...")
+func handleResponseCmd(s *dgo.Session, i *dgo.InteractionCreate) {
+	if cb, fw, ok := helper.HandleSelect(i.MessageComponentData()); ok {
+		err := session.InteractionRespond(i.Interaction, cb(s, i))
+		if err != nil {
+			log.Panicf("Panicked with %v!!\n", err)
+		}
 
-	var response *dgo.InteractionResponse
-
-	switch i.MessageComponentData().CustomID {
-	case "o1":
-		response = &dgo.InteractionResponse{
-			Type: dgo.InteractionResponseChannelMessageWithSource,
-			Data: &dgo.InteractionResponseData{
-				Content: "You chose the first one",
-				Flags:   dgo.MessageFlagsEphemeral,
-			},
+		if fw != nil {
+			fw(s, i)
 		}
-	case "o2":
-		response = &dgo.InteractionResponse{
-			Type: dgo.InteractionResponseChannelMessageWithSource,
-			Data: &dgo.InteractionResponseData{
-				Content: "You chose the second one",
-				Flags:   dgo.MessageFlagsEphemeral,
-			},
-		}
-	case "o3":
-		response = &dgo.InteractionResponse{
-			Type: dgo.InteractionResponseChannelMessageWithSource,
-			Data: &dgo.InteractionResponseData{
-				Content: "You chose the third one",
-				Flags:   dgo.MessageFlagsEphemeral,
-			},
-		}
-	default:
-		response = &dgo.InteractionResponse{
-			Type: dgo.InteractionResponseChannelMessageWithSource,
-			Data: &dgo.InteractionResponseData{
-				Content: "It is not the way to go.",
-				Flags:   dgo.MessageFlagsEphemeral,
-			},
-		}
-	}
-	err := session.InteractionRespond(i.Interaction, response)
-	if err != nil {
-		panic(err)
 	}
 }
 
+// Syncs commands across runs, deleting old commands and creating or editing
+// new ones
 func syncCommands() error {
 	existingCommands, err := session.ApplicationCommands(session.State.User.ID, "")
 	if err != nil {
@@ -144,7 +143,8 @@ func syncCommands() error {
 	return nil
 }
 
-func New(token string) error {
+// Creates the discordgo session from a token
+func createSession(token string) error {
 	var err error
 
 	session, err = dgo.New("Bot " + token)
@@ -152,16 +152,18 @@ func New(token string) error {
 		return err
 	}
 
+	return nil
+}
+
+// Creates the necessary handlers
+func createHandlers() {
 	session.AddHandler(func(s *dgo.Session, i *dgo.Ready) {
 		fmt.Printf("Bot is up! Logged as: %v#%v\n", s.State.User.Username, s.State.User.Discriminator)
 	})
 
 	session.AddHandler(func(s *dgo.Session, i *dgo.InteractionCreate) {
-		fmt.Println("Got an interaction")
 		switch i.Type {
 		case dgo.InteractionApplicationCommand:
-			fmt.Printf("* InteractionApplicationCommand ('%v')\n", i.ApplicationCommandData().Name)
-
 			switch i.ApplicationCommandData().Name {
 			case "basic":
 				handleBasicCmd(s, i)
@@ -172,7 +174,10 @@ func New(token string) error {
 			handleResponseCmd(s, i)
 		}
 	})
+}
 
+// Starts the bot session
+func openSession() error {
 	if err := session.Open(); err != nil {
 		return err
 	}
@@ -184,10 +189,22 @@ func New(token string) error {
 	return nil
 }
 
+func New(token string) error {
+	if err := createSession(token); err != nil {
+		return err
+	}
+
+	createHandlers()
+
+	if err := openSession(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func Run() {
 	defer Quit()
-
-	fmt.Println("Starting bot...")
 
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
